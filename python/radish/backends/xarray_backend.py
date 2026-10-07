@@ -180,7 +180,7 @@ class RadishBackendEntrypoint(BackendEntrypoint):
             "altitude": metadata.altitude,
         }
         data_vars: Dict[str, Any] = {}
-        if fmt == "sigmet":
+        if fmt in ("sigmet", "argentina_bufr"):
             # xradar's `open_iris_datatree` emits `sweep_fixed_angle(sweep)`
             # AND `sweep_group_name(sweep)` at the root, in addition to the
             # FM301 0-d scalars inside each sweep group. Match that shape
@@ -282,6 +282,29 @@ class RadishBackendEntrypoint(BackendEntrypoint):
                     "scan_name": extra.get("scan_name", ""),
                 }
             )
+            data_vars.update(
+                {
+                    "volume_number": ((), int(metadata.volume_number)),
+                    "platform_type": ((), str(metadata.platform_type)),
+                    "instrument_type": ((), "radar"),
+                    "time_coverage_start": ((), str(metadata.time_coverage_start)),
+                    "time_coverage_end": ((), str(metadata.time_coverage_end)),
+                }
+            )
+        elif fmt == "argentina_bufr":
+            # SMN / SINARAME RMA BUFR. Every decoded header field and the
+            # file-name scan key (task / subtask) travel as root attrs, since
+            # the RMA scan strategy is defined by them.
+            extra = dict(metadata.attributes) if getattr(metadata, "attributes", None) else {}
+            attrs.update(
+                {
+                    "Conventions": "None",
+                    "institution": metadata.institution or "SMN (SINARAME)",
+                    "source": extra.pop("source_format", "BUFR"),
+                    "comment": "im/exported using radish",
+                }
+            )
+            attrs.update(extra)
             data_vars.update(
                 {
                     "volume_number": ((), int(metadata.volume_number)),

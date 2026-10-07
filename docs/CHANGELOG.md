@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **SMN / SINARAME (Argentina) RMA radar BUFR backend (`argentina_bufr`).**
+  Decodes the BUFR edition 4 messages (centre 41 local tables) that the
+  SMN FTP serves as `<RADAR>_<task>_<subtask>_<MOMENT>_<time>Z.BUFR[.gz]`,
+  one file per moment. Ported from the Rust parser on
+  swnesbitt/xradar `feat/argentina-bufr-ingest`. A directory, a list of
+  paths, or a list of in-memory messages of one scan is merged into one
+  volume (sweeps matched by elevation); `argentina_bufr_groups` /
+  `read_volumes` split a directory holding several scans by the file-name
+  key. Differences from the xradar reader: per-moment range offsets are
+  honoured (live 2026 files put KDP 3 km further out than DBZH, which
+  xradar pads against the DBZH axis), ray times follow the antenna
+  rotation from the start azimuth, sweeps at ≥ 88° (the RMA birdbath) are
+  `vertical_pointing`, and the radar name is station type + number
+  (`RMA1`). Registered ahead of NEXRAD so gzip-wrapped BUFR is not
+  claimed by the NEXRAD gzip sniff; the Python bytes sniff now peeks
+  4096 bytes so the gzip head can be inflated.
+
 ### Fixed
 
 - **macOS CI (`Test (macos-latest, stable)`, `Test Python 3.12/3.13 on

@@ -9,6 +9,7 @@ use std::path::Path;
 // feature. `nexrad`, `sigmet`, and (once added) `nexrad_level3` are pure
 // byte-parsing backends with no C dependency and stay unconditional; only
 // their `rayon` usage is feature-gated (`backends::common::parallel`).
+pub mod argentina_bufr;
 #[cfg(feature = "native")]
 pub mod cfradial1;
 pub(crate) mod common;
@@ -16,6 +17,7 @@ pub mod nexrad;
 pub mod nexrad_level3;
 pub mod sigmet;
 
+pub use argentina_bufr::ArgentinaBufrBackend;
 #[cfg(feature = "native")]
 pub use cfradial1::CfRadial1Backend;
 pub use nexrad::{IncompleteSweepPolicy, NexradBackend};
@@ -97,6 +99,9 @@ pub fn available_backends() -> Vec<Box<dyn RadarBackend>> {
     vec![
         #[cfg(feature = "native")]
         Box::new(CfRadial1Backend::new()),
+        // Before NEXRAD: both ship gzip-wrapped, and NEXRAD's sniff accepts
+        // any gzip prefix; this one inflates the head and wants `BUFR`.
+        Box::new(ArgentinaBufrBackend::new()),
         Box::new(NexradBackend::new()),
         Box::new(SigmetBackend::new()),
         // Last: its sniff is content-based (scans up to 128 bytes for an
@@ -168,6 +173,12 @@ mod tests {
         let head = b"\x89HDF\r\n\x1a\nrest";
         let backend = auto_backend_for_bytes(head).expect("HDF5 → some backend");
         assert_eq!(backend.name(), "cfradial1");
+    }
+
+    #[test]
+    fn auto_backend_for_bytes_routes_bufr_to_argentina() {
+        let backend = auto_backend_for_bytes(b"BUFR\x00\x10\x00\x04").expect("BUFR → some backend");
+        assert_eq!(backend.name(), "argentina_bufr");
     }
 
     #[test]

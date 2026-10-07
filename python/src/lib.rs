@@ -1114,6 +1114,63 @@ fn read_sigmet_bytes(data: Vec<u8>) -> PyResult<PyVolumeData> {
 }
 
 // ────────────────────────────────────────────────────────────────────
+// SMN / SINARAME (Argentina) RMA BUFR
+// ────────────────────────────────────────────────────────────────────
+
+fn argentina_err(e: radish::RadishError) -> PyErr {
+    PyRuntimeError::new_err(format!("Failed to read Argentine RMA BUFR: {e}"))
+}
+
+/// Read one RMA BUFR scan from file and/or directory paths.
+///
+/// The SMN writes one file per moment; pass every moment file of a scan
+/// (or their directory) to get a merged volume. A single file yields that
+/// moment only. `moments` restricts decoding to the named FM301 moments.
+#[pyfunction]
+#[pyo3(signature = (paths, moments=None))]
+fn read_argentina_bufr(paths: Vec<String>, moments: Option<Vec<String>>) -> PyResult<PyVolumeData> {
+    let paths: Vec<std::path::PathBuf> = paths.into_iter().map(Into::into).collect();
+    let m: Option<Vec<&str>> = moments
+        .as_ref()
+        .map(|v| v.iter().map(String::as_str).collect());
+    radish::backends::argentina_bufr::read_files(&paths, m.as_deref())
+        .map(PyVolumeData::from_inner)
+        .map_err(argentina_err)
+}
+
+/// Read one RMA BUFR scan from in-memory messages (one per moment file).
+/// `names` are the original basenames (optional), used for task/subtask
+/// attributes and to refuse buffers from different scans.
+#[pyfunction]
+#[pyo3(signature = (buffers, names=None, moments=None))]
+fn read_argentina_bufr_bytes(
+    buffers: Vec<Vec<u8>>,
+    names: Option<Vec<String>>,
+    moments: Option<Vec<String>>,
+) -> PyResult<PyVolumeData> {
+    let m: Option<Vec<&str>> = moments
+        .as_ref()
+        .map(|v| v.iter().map(String::as_str).collect());
+    radish::backends::argentina_bufr::read_buffers(buffers, names, m.as_deref())
+        .map(PyVolumeData::from_inner)
+        .map_err(argentina_err)
+}
+
+/// Split RMA BUFR files / directories into scans (radar, task, subtask,
+/// time from the SMN file name), ordered by time. Returns lists of paths.
+#[pyfunction]
+fn argentina_bufr_groups(paths: Vec<String>) -> PyResult<Vec<Vec<String>>> {
+    let paths: Vec<std::path::PathBuf> = paths.into_iter().map(Into::into).collect();
+    radish::backends::argentina_bufr::group_files(&paths)
+        .map(|g| {
+            g.into_iter()
+                .map(|v| v.into_iter().map(|p| p.display().to_string()).collect())
+                .collect()
+        })
+        .map_err(argentina_err)
+}
+
+// ────────────────────────────────────────────────────────────────────
 // Low-level NEXRAD per-moment decoders (issue #32)
 // ────────────────────────────────────────────────────────────────────
 
@@ -1591,6 +1648,9 @@ fn _radish(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(read_sigmet, m)?)?;
     m.add_function(wrap_pyfunction!(scan_sigmet, m)?)?;
     m.add_function(wrap_pyfunction!(read_sigmet_bytes, m)?)?;
+    m.add_function(wrap_pyfunction!(read_argentina_bufr, m)?)?;
+    m.add_function(wrap_pyfunction!(read_argentina_bufr_bytes, m)?)?;
+    m.add_function(wrap_pyfunction!(argentina_bufr_groups, m)?)?;
     m.add_function(wrap_pyfunction!(auto_backend_name, m)?)?;
     m.add_function(wrap_pyfunction!(auto_backend_name_for_bytes, m)?)?;
     m.add_function(wrap_pyfunction!(decode_record_moment, m)?)?;

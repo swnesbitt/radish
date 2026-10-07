@@ -26,6 +26,9 @@ from radish._radish import (
     decode_nexrad_sweep_moment,
     nexrad_record_moment_encoding,
     nexrad_sweep_moment_encoding,
+    argentina_bufr_groups,
+    read_argentina_bufr,
+    read_argentina_bufr_bytes,
     read_cfradial1,
     read_nexrad,
     read_nexrad_chunks,
@@ -85,6 +88,11 @@ __all__ = [
     "scan_nexrad_chunks",
     "read_sigmet",
     "scan_sigmet",
+    # SMN / SINARAME (Argentina) RMA BUFR: one file per moment; these merge
+    # the files of one scan and split a directory into scans.
+    "read_argentina_bufr",
+    "read_argentina_bufr_bytes",
+    "argentina_bufr_groups",
     # Velocity dealiasing (region-based, bit-exact with Py-ART on every
     # unmasked gate — see docs/NEXRAD_LEVEL3_WASM.md).
     "dealias_region_based",

@@ -25,6 +25,9 @@ netcdf = { workspace = true, optional = true }
 byteorder = { workspace = true }
 bytemuck = { workspace = true }
 bzip2 = { workspace = true }
+# Argentine RMA BUFR: gzip outer wrapper + zlib-compressed moment payloads.
+# Default (miniz_oxide) backend is pure Rust, so wasm builds keep working.
+flate2 = "1.0"
 rayon = { workspace = true, optional = true }
 
 # `native` bundles every dependency that cannot target `wasm32-unknown-unknown`:

@@ -21,8 +21,11 @@ import warnings
 from typing import Any, Callable, Dict, Iterable, Optional, Tuple
 
 from radish._radish import (
+    argentina_bufr_groups,
     auto_backend_name,
     auto_backend_name_for_bytes,
+    read_argentina_bufr,
+    read_argentina_bufr_bytes,
     read_cfradial1,
     read_nexrad,
     read_nexrad_bytes,
@@ -49,7 +52,10 @@ SHAPE_CHUNKS = "chunk-list"
 
 # How many bytes to peek when sniffing a file-like or buffer. 16 covers
 # every magic we currently sniff (HDF5 = 8, AR2V = 4, gzip = 2).
-_PEEK_BYTES = 16
+# Enough compressed input for the Rust sniffers to inflate a gzip head:
+# gzip-wrapped NEXRAD and gzip-wrapped Argentine BUFR share the gzip magic,
+# so the BUFR sniffer inflates the first bytes. Plain magics need <= 8.
+_PEEK_BYTES = 4096
 
 
 def _is_bytes_like(obj: Any) -> bool:
@@ -122,6 +128,18 @@ def _materialize_chunks(chunks: Any) -> "list[bytes]":
     return out
 
 
+def _filelike_names(objs: Any) -> "Optional[list[str]]":
+    names = [os.path.basename(getattr(o, "name", "") or "") for o in objs]
+    return names if all(names) else None
+
+
+def _read_argentina_list(items: Any):
+    """One RMA BUFR scan from a list of per-moment files or messages."""
+    if all(_is_path_like(i) for i in items):
+        return read_argentina_bufr([os.fspath(i) for i in items])
+    return read_argentina_bufr_bytes(_materialize_chunks(items))
+
+
 def _peek_filelike(file_obj: Any) -> bytes:
     """Read up to `_PEEK_BYTES` from a file-like and rewind so the next read
     sees the same buffer. Falls back to consuming the stream if `seek` fails.
@@ -157,6 +175,17 @@ def _sniff_backend(input_obj: Any, shape: InputShape) -> Optional[str]:
     if shape == SHAPE_FILELIKE:
         return auto_backend_name_for_bytes(_peek_filelike(input_obj))
     if shape == SHAPE_CHUNKS:
+        # Lists are NEXRAD real-time chunks, unless they are the per-moment
+        # files (paths or messages) of one Argentine RMA BUFR scan.
+        first = input_obj[0]
+        try:
+            if _is_path_like(first):
+                if auto_backend_name(os.fspath(first)) == "argentina_bufr":
+                    return "argentina_bufr"
+            elif auto_backend_name_for_bytes(bytes(first[:_PEEK_BYTES])) == "argentina_bufr":
+                return "argentina_bufr"
+        except RuntimeError:
+            pass
         return "nexrad_level2"
     return None
 
@@ -195,6 +224,12 @@ _DISPATCH: Dict[Tuple[str, InputShape], Callable[..., Any]] = {
     ("sigmet", SHAPE_PATH): lambda obj: read_sigmet(os.fspath(obj)),
     ("sigmet", SHAPE_BYTES): lambda obj: read_sigmet_bytes(bytes(obj)),
     ("sigmet", SHAPE_FILELIKE): lambda obj: read_sigmet_bytes(obj.read()),
+    ("argentina_bufr", SHAPE_PATH): lambda obj: read_argentina_bufr([os.fspath(obj)]),
+    ("argentina_bufr", SHAPE_BYTES): lambda obj: read_argentina_bufr_bytes([bytes(obj)]),
+    ("argentina_bufr", SHAPE_FILELIKE): lambda obj: read_argentina_bufr_bytes(
+        [obj.read()], _filelike_names([obj])
+    ),
+    ("argentina_bufr", SHAPE_CHUNKS): lambda obj: _read_argentina_list(obj),
 }
 
 # The one high-level default for NEXRAD's partial-volume policy —
@@ -225,6 +260,8 @@ _SCAN_DISPATCH: Dict[Tuple[str, InputShape], Callable[[Any], Any]] = {
     ("nexrad_level2", SHAPE_CHUNKS): lambda obj: scan_nexrad_chunks(_materialize_chunks(obj)),
     ("cfradial1", SHAPE_PATH): lambda obj: scan_cfradial1(os.fspath(obj)),
     ("sigmet", SHAPE_PATH): lambda obj: scan_sigmet(os.fspath(obj)),
+    ("argentina_bufr", SHAPE_PATH): lambda obj: read_argentina_bufr([os.fspath(obj)]).metadata,
+    ("argentina_bufr", SHAPE_CHUNKS): lambda obj: _read_argentina_list(obj).metadata,
 }
 
 
@@ -508,6 +545,10 @@ _BACKEND_ALIASES: Dict[str, str] = {
     "cfradial1": "cfradial1",
     "sigmet": "sigmet",
     "iris": "sigmet",
+    "argentina_bufr": "argentina_bufr",
+    "argentina": "argentina_bufr",
+    "rma": "argentina_bufr",
+    "bufr": "argentina_bufr",
 }
 
 
@@ -543,6 +584,8 @@ def _infer_backend_from_volume(volume: Any) -> str:
         return "nexrad_level2"
     if getattr(volume.metadata, "sigmet_attrs", None) is not None:
         return "sigmet"
+    if "SMN" in dict(getattr(volume.metadata, "attributes", {}) or {}).get("source_format", ""):
+        return "argentina_bufr"
     return "cfradial1"
 
 
